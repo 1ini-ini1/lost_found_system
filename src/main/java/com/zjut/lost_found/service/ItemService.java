@@ -26,8 +26,17 @@ import java.util.List;
 public class ItemService {
 
     private final ItemRepository itemRepository;  // 注入物品数据访问层
-    private final NoticeService noticeService;    // 注入消息通知服务（后续实现）
-    private final AuditLogService auditLogService; // 注入操作日志服务（后续实现）
+    private final NoticeService noticeService;    // 注入消息通知服务
+    private final AuditLogService auditLogService; // 注入操作日志服务
+
+    /**
+     * 新增通用的保存物品方法（供其他Service调用，如ClaimService）
+     * 用于直接保存/更新物品实体，不包含额外业务逻辑（仅数据持久化）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Item saveItem(Item item) {
+        return itemRepository.save(item);
+    }
 
     /**
      * 发布物品（核心方法）
@@ -162,9 +171,51 @@ public class ItemService {
             // 发送归档通知
             noticeService.sendNotice(item.getPublisher(), "物品自动归档通知",
                     "您发布的物品《" + item.getName() + "》因超30天未认领，已自动归档");
+            // 记录归档日志（新增）
+            auditLogService.recordLog(null, "ITEM_ARCHIVE",
+                    "物品自动归档：" + item.getName() + "，ID：" + item.getId(),
+                    item.getId().toString());
         });
 
-        // 4. 批量保存
-        itemRepository.saveAll(itemsToArchive);
+        // 4. 批量保存归档结果
+        if (!itemsToArchive.isEmpty()) {
+            itemRepository.saveAll(itemsToArchive);
+        }
+    }
+
+    /**
+     * 取消发布物品（发布人操作）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Item cancelItem(Long itemId, User operator) {
+        // 1. 校验物品存在
+        Item item = getItemById(itemId);
+
+        // 2. 校验操作权限（发布人或超级管理员可取消）
+        if (!item.getPublisher().getId().equals(operator.getId())
+                && !UserRoleEnum.SUPER_ADMIN.equals(operator.getRole())) {
+            throw new RuntimeException("无权限取消该物品发布");
+        }
+
+        // 3. 校验物品状态（仅待审核、已通过可取消）
+        if (ItemStatusEnum.CLAIMED.equals(item.getStatus())
+                || ItemStatusEnum.ARCHIVED.equals(item.getStatus())
+                || ItemStatusEnum.CANCELED.equals(item.getStatus())) {
+            throw new RuntimeException("当前物品状态不可取消，状态：" + item.getStatus().getDesc());
+        }
+
+        // 4. 更新状态并保存
+        item.setStatus(ItemStatusEnum.CANCELED);
+        Item canceledItem = itemRepository.save(item);
+
+        // 5. 记录日志+发送通知
+        auditLogService.recordLog(operator, "ITEM_CANCEL",
+                "取消物品发布：" + canceledItem.getName() + "，ID：" + itemId,
+                itemId.toString());
+
+        noticeService.sendNotice(item.getPublisher(), "物品发布取消通知",
+                "您发布的物品《" + canceledItem.getName() + "》已成功取消发布");
+
+        return canceledItem;
     }
 }

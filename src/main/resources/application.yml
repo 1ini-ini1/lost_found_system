@@ -1,7 +1,7 @@
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/lost_found?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3307/lost_found?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root  # 你的MySQL用户名
     password: Zzj20061023  # 你的MySQL密码
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -21,3 +21,10 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html  # 可视化文档访问地址
     operationsSorter: method  # 按请求方法排序接口
+# application.yml 格式
+logging:
+  level:
+    root: INFO  # 根日志级别设为INFO（能显示ERROR/WARN/INFO）
+    com.zjut.lost_found: DEBUG  # 你的项目包设为DEBUG，显示详细日志
+    org.springframework.web: DEBUG  # Spring Web日志设为DEBUG
+    org.springdoc: DEBUG  # Swagger日志设为DEBUG

@@ -6,7 +6,6 @@ import com.zjut.lost_found.entity.User;
 import com.zjut.lost_found.enums.ItemStatusEnum;
 import com.zjut.lost_found.enums.UserRoleEnum;
 import com.zjut.lost_found.repository.ClaimRepository;
-import com.zjut.lost_found.repository.ItemRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,27 +15,20 @@ import java.util.List;
 
 /**
  * 认领申请核心业务服务（0基础必懂）
- * 核心功能：提交认领申请、审核申请、撤销申请
+ * 核心功能：提交认领申请、审核认领申请、查询我的认领
  */
 @Service
 @RequiredArgsConstructor
 public class ClaimService {
 
     private final ClaimRepository claimRepository;  // 注入认领申请数据访问层
-    private final ItemRepository itemRepository;    // 注入物品数据访问层
-    private final NoticeService noticeService;      // 注入消息通知服务
+    private final ItemService itemService;          // 注入物品服务
+    private final UserService userService;          // 注入用户服务
+    private final NoticeService noticeService;      // 注入通知服务
     private final AuditLogService auditLogService;  // 注入操作日志服务
 
-    // ========== 新增缺失的 findClaimsByClaimer 方法 ==========
     /**
-     * 根据认领人查询所有认领申请
-     */
-    public List<Claim> findClaimsByClaimer(User claimer) {
-        return claimRepository.findByClaimer(claimer);
-    }
-
-    /**
-     * 提交认领申请（核心方法）
+     * 提交认领申请（普通用户操作）
      */
     @Transactional(rollbackFor = Exception.class)
     public Claim submitClaim(Long itemId, String proof, User claimer) {
@@ -45,40 +37,43 @@ public class ClaimService {
             throw new RuntimeException("账号已禁用，无法提交认领申请");
         }
 
-        // 2. 校验物品存在且状态为已通过（仅已审核物品可认领）
-        Item item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new EntityNotFoundException("物品不存在，ID：" + itemId));
+        // 2. 校验物品存在且状态为已通过（仅已通过物品可认领）
+        Item item = itemService.getItemById(itemId);
         if (!ItemStatusEnum.PASSED.equals(item.getStatus())) {
-            throw new RuntimeException("物品当前状态不可认领，状态：" + item.getStatus().getDesc());
+            throw new RuntimeException("当前物品不可认领，状态：" + item.getStatus().getDesc());
         }
 
-        // 3. 校验是否重复申请（同一用户不能重复申请同一物品）
+        // 3. 校验是否重复申请（同一用户不可重复申请同一物品）
         List<Claim> existingClaims = claimRepository.findByItemAndClaimer(item, claimer);
         if (!existingClaims.isEmpty()) {
-            throw new RuntimeException("您已提交过该物品的认领申请，请勿重复提交");
+            throw new RuntimeException("您已提交该物品的认领申请，请勿重复提交");
         }
 
-        // 4. 构建认领申请实体
-        Claim claim = new Claim();
-        claim.setItem(item);        // 关联被认领物品
-        claim.setClaimer(claimer);  // 关联认领人
-        claim.setProof(proof);      // 认领证明
-        claim.setStatus("PENDING_AUDIT");  // 状态默认待审核
+        // 4. 校验认领证明非空
+        if (proof == null || proof.trim().isEmpty()) {
+            throw new RuntimeException("认领证明不能为空");
+        }
 
-        // 5. 保存申请
+        // 5. 构建认领申请实体
+        Claim claim = new Claim();
+        claim.setProof(proof);
+        claim.setItem(item);
+        claim.setClaimer(claimer);
+        // 状态默认待审核，时间自动填充（继承BaseEntity）
+
+        // 6. 保存申请到数据库
         Claim savedClaim = claimRepository.save(claim);
 
-        // 6. 记录日志+发送通知
+        // 7. 记录操作日志
         auditLogService.recordLog(claimer, "CLAIM_SUBMIT",
-                "提交认领申请：物品《" + item.getName() + "》，申请ID：" + savedClaim.getId(),
+                "提交认领申请：物品" + item.getName() + "，申请ID：" + savedClaim.getId(),
                 savedClaim.getId().toString());
 
-        // 通知认领人（申请成功）
+        // 8. 发送通知（告知认领人提交成功，同时告知物品发布人有新申请）
         noticeService.sendNotice(claimer, "认领申请提交成功",
                 "您对物品《" + item.getName() + "》的认领申请已提交，等待管理员审核");
-        // 通知物品发布人（新申请提醒）
         noticeService.sendNotice(item.getPublisher(), "新认领申请通知",
-                "您发布的物品《" + item.getName() + "》收到新的认领申请，请及时查看");
+                "您发布的物品《" + item.getName() + "》收到新的认领申请，可前往查看");
 
         return savedClaim;
     }
@@ -87,94 +82,85 @@ public class ClaimService {
      * 审核认领申请（管理员操作）
      */
     @Transactional(rollbackFor = Exception.class)
-    public Claim auditClaim(Long claimId, Boolean approve, String rejectReason, User operator) {
-        // 1. 校验审核人权限
+    public Claim auditClaim(Long claimId, String status, String rejectReason, User operator) {
+        // 1. 校验审核人权限（仅管理员可操作）
         if (!UserRoleEnum.ADMIN.equals(operator.getRole()) && !UserRoleEnum.SUPER_ADMIN.equals(operator.getRole())) {
             throw new RuntimeException("无权限审核认领申请");
         }
 
         // 2. 校验申请存在且状态为待审核
-        Claim claim = claimRepository.findById(claimId)
-                .orElseThrow(() -> new EntityNotFoundException("认领申请不存在，ID：" + claimId));
+        Claim claim = getClaimById(claimId);
         if (!"PENDING_AUDIT".equals(claim.getStatus())) {
             throw new RuntimeException("申请当前状态不可审核，状态：" + claim.getStatus());
         }
 
-        // 3. 校验物品状态合法
-        Item item = claim.getItem();
-        if (!ItemStatusEnum.PASSED.equals(item.getStatus())) {
-            throw new RuntimeException("物品当前状态不可审核认领申请");
+        // 3. 校验审核状态合法性
+        if (!"PASSED".equals(status) && !"REJECTED".equals(status)) {
+            throw new RuntimeException("审核状态无效，仅支持已通过/已驳回");
         }
 
         // 4. 处理审核结果
-        String newStatus = approve ? "APPROVED" : "REJECTED";
-        claim.setStatus(newStatus);
-        if (!approve) {
+        claim.setStatus(status);
+        if ("REJECTED".equals(status)) {
+            // 驳回需填写理由
             if (rejectReason == null || rejectReason.trim().isEmpty()) {
-                throw new RuntimeException("驳回申请必须填写理由");
+                throw new RuntimeException("驳回认领申请必须填写理由");
             }
             claim.setRejectReason(rejectReason);
-        }
-
-        // 5. 审核通过：更新物品状态为已认领（避免重复认领）
-        if (approve) {
+        } else {
+            // 审核通过：将物品状态改为已认领，避免重复认领
+            Item item = claim.getItem();
             item.setStatus(ItemStatusEnum.CLAIMED);
-            itemRepository.save(item);
+            itemService.saveItem(item); // 调用物品仓库保存状态
         }
 
-        // 6. 保存申请+记录日志+发送通知
-        Claim updatedClaim = claimRepository.save(claim);
+        // 5. 保存审核结果
+        Claim auditedClaim = claimRepository.save(claim);
+        Item item = auditedClaim.getItem();
+        User claimer = auditedClaim.getClaimer();
 
-        String operationDesc = approve ? "审核通过" : "驳回";
+        // 6. 记录操作日志
+        String operationDesc = "PASSED".equals(status) ? "审核通过" : "驳回";
         auditLogService.recordLog(operator, "CLAIM_AUDIT",
-                operationDesc + "认领申请：申请ID" + claimId + "，物品《" + item.getName() + "》",
+                operationDesc + "认领申请：物品" + item.getName() + "，申请ID：" + claimId,
                 claimId.toString());
 
-        // 通知认领人
-        noticeService.sendNotice(claim.getClaimer(), "认领申请审核结果",
-                "您对物品《" + item.getName() + "》的认领申请已" + operationDesc + "。" +
-                        (approve ? "请联系发布人办理认领" : "驳回理由：" + rejectReason));
-        // 通知物品发布人
+        // 7. 发送通知（告知认领人审核结果，同时告知物品发布人）
+        String resultDesc = "PASSED".equals(status) ? "已通过" : "已驳回";
+        noticeService.sendNotice(claimer, "认领申请审核结果",
+                "您对物品《" + item.getName() + "》的认领申请" + resultDesc + "。" +
+                        ("REJECTED".equals(status) ? "驳回理由：" + rejectReason : "请联系物品发布人完成交接"));
         noticeService.sendNotice(item.getPublisher(), "认领申请审核结果",
-                "您发布的物品《" + item.getName() + "》的认领申请已" + operationDesc);
+                "您发布的物品《" + item.getName() + "》的认领申请" + resultDesc + "，认领人：" + claimer.getName());
 
-        return updatedClaim;
+        return auditedClaim;
     }
 
     /**
-     * 撤销认领申请（认领人操作）
+     * 按ID查询认领申请详情
      */
-    @Transactional(rollbackFor = Exception.class)
-    public Claim cancelClaim(Long claimId, User claimer) {
-        // 1. 校验申请存在
-        Claim claim = claimRepository.findById(claimId)
+    public Claim getClaimById(Long claimId) {
+        return claimRepository.findById(claimId)
                 .orElseThrow(() -> new EntityNotFoundException("认领申请不存在，ID：" + claimId));
+    }
 
-        // 2. 校验权限（仅本人可撤销）
-        if (!claimer.getId().equals(claim.getClaimer().getId())) {
-            throw new RuntimeException("无权限撤销他人的申请");
-        }
+    /**
+     * 按认领人查询我的认领申请
+     */
+    public List<Claim> getMyClaims(User claimer) {
+        return claimRepository.findByClaimer(claimer);
+    }
 
-        // 3. 校验状态（仅待审核可撤销）
-        if (!"PENDING_AUDIT".equals(claim.getStatus())) {
-            throw new RuntimeException("申请当前状态不可撤销，状态：" + claim.getStatus());
-        }
+    /**
+     * 按物品查询所有认领申请（供物品发布人查看）
+     */
+    public List<Claim> getClaimsByItem(Long itemId) {
+        Item item = itemService.getItemById(itemId);
+        return claimRepository.findByItem(item);
+    }
 
-        // 4. 更新状态为已撤销
-        claim.setStatus("CANCELED");
-        Claim updatedClaim = claimRepository.save(claim);
-
-        // 5. 记录日志+发送通知
-        Item item = claim.getItem();
-        auditLogService.recordLog(claimer, "CLAIM_CANCEL",
-                "撤销认领申请：申请ID" + claimId + "，物品《" + item.getName() + "》",
-                claimId.toString());
-
-        noticeService.sendNotice(claimer, "认领申请撤销成功",
-                "您对物品《" + item.getName() + "》的认领申请已撤销");
-        noticeService.sendNotice(item.getPublisher(), "认领申请撤销通知",
-                "您发布的物品《" + item.getName() + "》的一条认领申请已被撤销");
-
-        return updatedClaim;
+    // 提供物品仓库访问权限（供内部调用）
+    public ItemService getItemService() {
+        return itemService;
     }
 }

@@ -1,6 +1,5 @@
 package com.zjut.lost_found.dto;
 
-import jakarta.validation.constraints.Length;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -14,7 +13,6 @@ import java.time.LocalDateTime;
 public class ItemPublishDTO {
 
     @NotBlank(message = "物品名称不能为空")
-    @Length(min = 1, max = 50, message = "物品名称长度需在1-50字符之间")
     private String name;  // 物品名称
 
     @NotBlank(message = "物品类型不能为空")
@@ -24,7 +22,6 @@ public class ItemPublishDTO {
     private LocalDateTime time;  // 丢失/拾取时间
 
     @NotBlank(message = "物品描述不能为空")
-    @Length(min = 10, max = 500, message = "物品描述长度需在10-500字符之间")
     private String description;  // 物品特征描述
 
     private String photoUrl;  // 物品图片URL（可选）

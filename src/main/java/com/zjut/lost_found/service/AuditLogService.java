@@ -2,54 +2,85 @@ package com.zjut.lost_found.service;
 
 import com.zjut.lost_found.entity.AuditLog;
 import com.zjut.lost_found.entity.User;
-import com.zjut.lost_found.enums.UserRoleEnum;
 import com.zjut.lost_found.repository.AuditLogRepository;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
- * 操作日志服务（0基础必懂）
- * 核心功能：记录系统操作（发布、审核、认领等），用于审计溯源
+ * 操作日志核心业务服务（新增）
+ * 核心功能：记录操作日志、多条件查询日志（审计溯源）
  */
 @Service
 @RequiredArgsConstructor
 public class AuditLogService {
 
-    private final AuditLogRepository auditLogRepository;  // 注入日志数据访问层
+    private final AuditLogRepository auditLogRepository;  // 注入操作日志数据访问层
 
     /**
-     * 记录操作日志（通用方法）
+     * 记录操作日志（通用方法，供所有服务调用）
+     * @param operator 操作用户（可为null，如自动归档）
+     * @param operationType 操作类型（如USER_REGISTER、ITEM_PUBLISH）
+     * @param operationDesc 操作详情描述
+     * @param targetId 操作目标ID
      */
     @Transactional(rollbackFor = Exception.class)
     public AuditLog recordLog(User operator, String operationType, String operationDesc, String targetId) {
-        // 校验操作用户信息完整
-        if (operator == null || operator.getId() == null) {
-            throw new RuntimeException("操作用户信息不完整，无法记录日志");
+        // 1. 校验必填参数
+        if (operationType == null || operationType.trim().isEmpty()) {
+            throw new RuntimeException("操作类型不能为空");
+        }
+        if (operationDesc == null || operationDesc.trim().isEmpty()) {
+            throw new RuntimeException("操作详情不能为空");
         }
 
-        // 构建日志实体
+        // 2. 构建操作日志实体
         AuditLog auditLog = new AuditLog();
-        auditLog.setOperator(operator);        // 关联操作用户
-        auditLog.setOperationType(operationType);  // 操作类型（如ITEM_PUBLISH）
-        auditLog.setOperationDesc(operationDesc);  // 操作详情
-        auditLog.setTargetId(targetId);        // 操作目标ID（物品/申请ID）
+        auditLog.setOperationType(operationType);
+        auditLog.setOperationDesc(operationDesc);
+        auditLog.setTargetId(targetId);
+        auditLog.setOperator(operator); // 自动归档等操作可为null，数据库允许空值
 
-        // 保存日志（时间自动填充）
+        // 3. 保存日志到数据库（时间自动填充，继承BaseEntity）
         return auditLogRepository.save(auditLog);
     }
 
     /**
-     * 查看日志详情（管理员操作）
+     * 按操作用户查询日志（分页）
      */
-    public AuditLog getLogById(Long logId, User queryUser) {
-        // 校验权限（仅管理员可查看）
-        if (!UserRoleEnum.ADMIN.equals(queryUser.getRole()) && !UserRoleEnum.SUPER_ADMIN.equals(queryUser.getRole())) {
-            throw new RuntimeException("无权限查看操作日志");
-        }
+    public Page<AuditLog> getLogsByOperator(User operator, Pageable pageable) {
+        return auditLogRepository.findByOperatorOrderByCreateTimeDesc(operator,pageable);
+    }
+    /**
+     * 按操作类型查询日志（分页）
+     */
+    public Page<AuditLog> getLogsByType(String operationType, Pageable pageable) {
+        return auditLogRepository.findByOperationTypeOrderByCreateTimeDesc(operationType, pageable);
+    }
 
-        return auditLogRepository.findById(logId)
-                .orElseThrow(() -> new EntityNotFoundException("日志不存在，ID：" + logId));
+    /**
+     * 按时间范围查询日志（分页）
+     */
+    public Page<AuditLog> getLogsByTimeRange(LocalDateTime startTime, LocalDateTime endTime, Pageable pageable) {
+        return auditLogRepository.findByCreateTimeBetweenOrderByCreateTimeDesc(startTime, endTime, pageable);
+    }
+
+    /**
+     * 多条件查询日志（操作用户+操作类型，分页）
+     */
+    public Page<AuditLog> getLogsByOperatorAndType(User operator, String operationType, Pageable pageable) {
+        return auditLogRepository.findByOperatorAndOperationTypeOrderByCreateTimeDesc(operator, operationType, pageable);
+    }
+
+    /**
+     * 查询所有日志（分页，仅超级管理员可调用）
+     */
+    public Page<AuditLog> getAllLogs(Pageable pageable) {
+        return auditLogRepository.findAll(pageable);
     }
 }

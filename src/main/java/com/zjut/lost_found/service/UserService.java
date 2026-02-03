@@ -5,6 +5,7 @@ import com.zjut.lost_found.entity.User;
 import com.zjut.lost_found.enums.UserRoleEnum;
 import com.zjut.lost_found.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,8 +21,11 @@ import java.util.Optional;
 @RequiredArgsConstructor  // Lombok自动注入依赖（替代@Autowired）
 public class UserService {
 
+    // UserService 类中新增（与其他方法同级）
+    @Getter
     private final UserRepository userRepository;  // 注入用户数据访问层
     private final PasswordEncoder passwordEncoder;  // 密码加密组件（Spring Security提供）
+    private final AuditLogService auditLogService;  // 注入操作日志服务（新增关联）
 
     /**
      * 用户注册（核心方法）
@@ -47,7 +51,14 @@ public class UserService {
         // 角色默认普通用户，账号默认启用（继承BaseEntity自动填充时间）
 
         // 4. 保存用户到数据库
-        return userRepository.save(user);
+        User savedUser = userRepository.save(user);
+
+        // 5. 记录注册操作日志（新增）
+        auditLogService.recordLog(savedUser, "USER_REGISTER",
+                "用户注册：账号" + savedUser.getUsername() + "，ID：" + savedUser.getId(),
+                savedUser.getId().toString());
+
+        return savedUser;
     }
 
     /**
@@ -63,7 +74,12 @@ public class UserService {
             throw new RuntimeException("密码错误");
         }
 
-        // 3. 登录成功，返回用户信息
+        // 3. 记录登录操作日志（新增）
+        auditLogService.recordLog(user, "USER_LOGIN",
+                "用户登录：账号" + user.getUsername() + "，ID：" + user.getId(),
+                user.getId().toString());
+
+        // 4. 登录成功，返回用户信息
         return user;
     }
 
@@ -90,6 +106,14 @@ public class UserService {
 
         // 3. 修改角色并保存
         user.setRole(newRole);
-        return userRepository.save(user);
+        User updatedUser = userRepository.save(user);
+
+        // 4. 记录修改角色日志（新增）
+        auditLogService.recordLog(operator, "USER_UPDATE_ROLE",
+                "修改用户角色：用户ID" + userId + "，旧角色" + user.getRole().getDesc() + "，新角色" + newRole.getDesc(),
+                userId.toString());
+
+        return updatedUser;
     }
+
 }
