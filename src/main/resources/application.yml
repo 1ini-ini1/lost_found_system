@@ -1,30 +1,36 @@
+server:
+  port: 8080 # 项目端口，默认8080，若被占用可修改（如8081）
+  servlet:
+    context-path: / # 上下文路径，默认/，无需修改，访问项目时直接用端口即可
 
+# 数据库配置（MySQL 8.0），新手必须修改username和password
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3307/lost_found?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root  # 你的MySQL用户名
-    password: Zzj20061023  # 你的MySQL密码
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3307/lost_found_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    # 本地MySQL的用户名，默认是root（安装MySQL时设置的）
+    username: root
+    # 本地MySQL的密码，是你安装MySQL时设置的密码（新手常忘，需牢记）
+    password: Zzj20061023
+    driver-class-name: com.mysql.cj.jdbc.Driver # MySQL 8.0的驱动类，固定写法
+  # JPA配置（自动建表、SQL格式化，新手无需修改）
   jpa:
     hibernate:
-      ddl-auto: update  # 自动创建/更新表结构（开发环境用）
-    show-sql: true     # 打印执行的SQL（调试用）
+      ddl-auto: update # 开发环境用update（修改实体类后自动更新表结构），生产环境用none（避免误删数据）
+    show-sql: true # 打印SQL语句，方便调试（开发时开启，上线时可关闭）
     properties:
       hibernate:
-        format_sql: true  # 格式化SQL，便于查看
-server:
-  port: 8080  # 项目端口，访问地址：http://localhost:8080
-# SpringDoc OpenAPI配置（解决依赖引入后访问问题）
-springdoc:
-  api-docs:
-    path: /api-docs  # API文档JSON地址
-  swagger-ui:
-    path: /swagger-ui.html  # 可视化文档访问地址
-    operationsSorter: method  # 按请求方法排序接口
-# application.yml 格式
+        format_sql: true # 格式化SQL语句，更易读
+    database-platform: org.hibernate.dialect.MySQLDialect # 适配MySQL方言，避免兼容性问题
+
+# JWT配置（自定义，用于登录验证，新手无需修改）
+jwt:
+  secret: zjutLostFoundSystem20240510SecretKey # 密钥（生产环境需修改，越长越安全）
+  expiration: 86400000 # 令牌有效期：24小时（单位：毫秒），86400000=24*60*60*1000
+  issuer: zjut # 签发者，自定义即可
+
+# 日志配置（可选，方便调试，新手无需修改）
 logging:
   level:
-    root: INFO  # 根日志级别设为INFO（能显示ERROR/WARN/INFO）
-    com.zjut.lost_found: DEBUG  # 你的项目包设为DEBUG，显示详细日志
-    org.springframework.web: DEBUG  # Spring Web日志设为DEBUG
-    org.springdoc: DEBUG  # Swagger日志设为DEBUG
+    root: info
+    com.zjut.lost_found: debug # 项目包日志级别设为debug，打印详细信息，方便排查错误
+    org.springframework.security: warn # Security日志级别设为warn，减少冗余日志

@@ -55,21 +55,18 @@ public class GlobalExceptionHandler {
      * 新增：放行Swagger相关请求，避免/v3/api-docs被包装成500错误
      */
     @ExceptionHandler(Exception.class)
-    public ApiResponse<Void> handleException(Exception e, HttpServletRequest request) { // 新增：HttpServletRequest参数
-        // ========== 核心新增逻辑 ==========
-        String requestURI = request.getRequestURI();
-        // 1. 如果是Swagger相关请求，直接抛出原始异常（让SpringDoc处理，不包装）
-        if (requestURI.startsWith("/v3/api-docs") ||
-                requestURI.startsWith("/swagger-ui") ||
-                requestURI.startsWith("/webjars")) {
+    public ApiResponse<Void> handleException(Exception e, HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        // 1. 所有SpringDoc相关请求，直接抛出原始异常（让SpringDoc自己处理）
+        if (uri.startsWith("/v3/api-docs") ||
+                uri.startsWith("/swagger-ui") ||
+                uri.startsWith("/webjars")) {
             throw new RuntimeException(e);
         }
-        // 2. 如果是静态资源未找到异常（非Swagger），返回404
+        // 2. 其他异常按原有逻辑处理
         if (e instanceof NoResourceFoundException) {
             return ApiResponse.fail(404, "请求的资源不存在");
         }
-        // ========== 原有逻辑保留 ==========
-        // 返回500系统错误，隐藏具体异常信息，避免泄露
         return ApiResponse.fail(500, "系统异常，请联系管理员");
     }
 }
