@@ -27,7 +27,7 @@ public class NoticeService {
     @Transactional(rollbackFor = Exception.class)
     public Notice sendNotice(User receiveUser, String title, String content) {
         // 1. 校验接收人账号启用
-        if (!receiveUser.getIsEnabled()) {
+        if (receiveUser.getIsEnabled()==0) {
             throw new RuntimeException("接收人账号已禁用，无法发送通知");
         }
 

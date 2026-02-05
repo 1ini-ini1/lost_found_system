@@ -11,6 +11,7 @@ import java.util.List;
 
 /**
  * 认领申请数据访问层
+ * 优化点：补充 countByItemAndClaimer 方法，支持重复申请校验
  */
 @Repository
 public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecificationExecutor<Claim> {
@@ -23,6 +24,9 @@ public interface ClaimRepository extends JpaRepository<Claim, Long>, JpaSpecific
 
     // 按物品和认领人查询（防重复申请）
     List<Claim> findByItemAndClaimer(Item item, User claimer);
+
+    // 新增：统计同一用户对同一物品的认领记录数（用于重复申请校验）
+    long countByItemAndClaimer(Item item, User claimer);
 
     // 按申请状态查询（如查询待审核申请）
     List<Claim> findByStatus(String status);

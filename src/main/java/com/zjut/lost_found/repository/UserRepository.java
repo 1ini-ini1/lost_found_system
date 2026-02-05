@@ -7,21 +7,28 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.List;
 
-/**
- * 用户数据访问层（0基础必懂）
- * 继承JpaRepository：提供基础CRUD操作（save、findById等）
- * 继承JpaSpecificationExecutor：支持动态多条件查询
- */
 @Repository
 public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
-
     // 按账号查询用户（登录时用）
     Optional<User> findByUsername(String username);
 
-    // 按账号和启用状态查询（登录校验：账号存在且启用）
-    Optional<User> findByUsernameAndIsEnabled(String username, Boolean isEnabled);
+    // 优化：参数改为Integer，匹配User实体的isEnabled类型
+    Optional<User> findByUsernameAndIsEnabled(String username, Integer isEnabled);
 
-    // 按角色查询用户（管理员查询所有普通用户）
-    Iterable<User> findByRole(UserRoleEnum role);
+    // 按角色查询用户（管理员查询）
+    List<User> findByRole(UserRoleEnum role);
+
+    // 判断用户名是否存在
+    boolean existsByUsername(String username);
+
+    // 新增：支持大小写不敏感的用户名查询（增强鲁棒性）
+    Optional<User> findByUsernameIgnoreCase(String username);
+
+    // 统计用户名数量
+    long countByUsername(String username);
+
+    // 删除指定用户名的用户（测试数据初始化用）
+    void deleteByUsername(String username);
 }

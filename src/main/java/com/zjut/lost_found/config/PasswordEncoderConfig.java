@@ -6,15 +6,18 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * 密码加密配置（0基础必懂）
- * 作用：提供BCrypt密码加密组件，用于用户密码的安全存储
+ * 密码编码器配置类
+ * 核心：配置BCrypt密码编码器，供整个项目的密码加密/校验使用
  */
 @Configuration
 public class PasswordEncoderConfig {
 
+    /**
+     * 配置BCrypt密码编码器Bean
+     * BCrypt：不可逆加密算法，适合密码存储（Spring Security推荐）
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // BCrypt算法：不可逆加密，自动生成盐值，安全性高
         return new BCryptPasswordEncoder();
     }
 }

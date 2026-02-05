@@ -1,0 +1,51 @@
+# 测试环境配置（基于原有生产配置调整）
+server:
+  port: 8081  # 测试端口与生产区分，避免冲突
+  servlet:
+    context-path: /
+  encoding:
+    charset: UTF-8
+    enabled: true
+    force: true
+
+spring:
+  datasource:
+    # 测试库建议单独创建 lost_found_test，避免污染生产数据
+    url: jdbc:mysql://localhost:3307/lost_found_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: Zzj20061023  # 复用原有密码
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop  # 测试时每次启动重建表，结束后删除，保证数据干净
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQL8Dialect
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+    open-in-view: false
+
+# 复用原有JWT配置，测试时保持一致
+jwt:
+  secret: zjutLostFoundSystem20240510SecretKey_WithExtraCharactersToMakeItLonger_AtLeast64Chars
+  expiration: 86400000
+  issuer: zjut
+
+# 测试日志配置，保留SQL打印便于调试
+logging:
+  level:
+    root: info
+    com.zjut.lost_found: debug
+    org.springframework.security: warn
+    org.hibernate.SQL: debug
+    org.hibernate.type.descriptor.sql.BasicBinder: trace
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+
+# 测试环境关闭Swagger，提升测试启动速度
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

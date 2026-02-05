@@ -3,7 +3,7 @@ package com.zjut.lost_found.enums;
 import lombok.Getter;
 
 /**
- * 物品状态枚举（0基础必懂）
+ * 物品状态枚举
  * 跟踪物品从发布到归档的全生命周期，每个状态对应不同的业务逻辑
  */
 @Getter
@@ -13,7 +13,8 @@ public enum ItemStatusEnum {
     PASSED("已通过", "PASSED"), // 审核通过，可被其他用户看到并认领
     REJECTED("已驳回", "REJECTED"), // 审核驳回，无法展示，需发布人修改后重新提交
     CLAIMED("已认领", "CLAIMED"), // 被成功认领，流程结束
-    ARCHIVED("已归档", "ARCHIVED"); // 超期未认领，系统自动归档
+    ARCHIVED("已归档", "ARCHIVED"), // 超期未认领，系统自动归档
+    CANCELED("已取消", "CANCELED"); // 新增：用户主动取消发布的物品状态
 
     private final String desc; // 状态描述（前端展示）
     private final String value; // 状态值（数据库存储）

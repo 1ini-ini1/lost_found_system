@@ -1,36 +1,55 @@
 server:
-  port: 8080 # 项目端口，默认8080，若被占用可修改（如8081）
+  port: 8080
   servlet:
-    context-path: / # 上下文路径，默认/，无需修改，访问项目时直接用端口即可
+    context-path: /
+  encoding:
+    charset: UTF-8
+    enabled: true
+    force: true
 
-# 数据库配置（MySQL 8.0），新手必须修改username和password
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3307/lost_found_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    # 本地MySQL的用户名，默认是root（安装MySQL时设置的）
+    url: jdbc:mysql://localhost:3307/lost_found?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
-    # 本地MySQL的密码，是你安装MySQL时设置的密码（新手常忘，需牢记）
     password: Zzj20061023
-    driver-class-name: com.mysql.cj.jdbc.Driver # MySQL 8.0的驱动类，固定写法
-  # JPA配置（自动建表、SQL格式化，新手无需修改）
+    driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
-      ddl-auto: update # 开发环境用update（修改实体类后自动更新表结构），生产环境用none（避免误删数据）
-    show-sql: true # 打印SQL语句，方便调试（开发时开启，上线时可关闭）
+      ddl-auto: update
+    show-sql: true
     properties:
       hibernate:
-        format_sql: true # 格式化SQL语句，更易读
-    database-platform: org.hibernate.dialect.MySQLDialect # 适配MySQL方言，避免兼容性问题
+        format_sql: true
+        # 适配MySQL 8.x，替换旧方言
+        dialect: org.hibernate.dialect.MySQL8Dialect
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+    open-in-view: false # 关闭懒加载视图，提升性能
 
-# JWT配置（自定义，用于登录验证，新手无需修改）
+# JWT配置
 jwt:
-  secret: zjutLostFoundSystem20240510SecretKey # 密钥（生产环境需修改，越长越安全）
-  expiration: 86400000 # 令牌有效期：24小时（单位：毫秒），86400000=24*60*60*1000
-  issuer: zjut # 签发者，自定义即可
+  # 新密钥：长度≥64字符，确保安全
+  secret: zjutLostFoundSystem20240510SecretKey_WithExtraCharactersToMakeItLonger_AtLeast64Chars
+  expiration: 86400000
+  issuer: zjut
 
-# 日志配置（可选，方便调试，新手无需修改）
+# 日志配置
 logging:
   level:
     root: info
-    com.zjut.lost_found: debug # 项目包日志级别设为debug，打印详细信息，方便排查错误
-    org.springframework.security: warn # Security日志级别设为warn，减少冗余日志
+    com.zjut.lost_found: debug
+    org.springframework.security: warn
+    org.hibernate.SQL: debug # 打印SQL
+    org.hibernate.type.descriptor.sql.BasicBinder: trace # 打印SQL参数
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+
+# SpringDoc Swagger配置（接口文档）
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operationsSorter: method
+  packages-to-scan: com.zjut.lost_found.controller

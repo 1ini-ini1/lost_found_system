@@ -43,7 +43,7 @@ public class User extends BaseEntity {
     @Enumerated(EnumType.STRING) // 存储枚举的字符串值（而非索引，避免枚举顺序变化导致错误）
     private UserRoleEnum role = UserRoleEnum.USER; // 默认普通用户（新注册用户都是普通用户）
 
-    // 账号启用状态（true：启用；false：禁用，管理员可禁用账号）
+    // 账号启用状态（优化：改为int类型，1=启用；0=禁用，适配数据库tinyint类型）
     @Column(nullable = false, name = "is_enabled") // 数据库列名is_enabled（适配MySQL命名规范）
-    private Boolean isEnabled = true; // 默认启用（新注册账号默认可登录）
+    private Integer isEnabled = 1; // 默认启用（新注册账号默认可登录，int类型）
 }

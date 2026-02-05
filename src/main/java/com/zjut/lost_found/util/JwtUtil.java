@@ -1,126 +1,162 @@
 package com.zjut.lost_found.util;
 
 import io.jsonwebtoken.*;
-import jakarta.annotation.PostConstruct;
+import io.jsonwebtoken.security.Keys;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 /**
- * JWT工具类（0基础必懂）
- * 核心功能：生成令牌、验证令牌、解析令牌中的用户信息
- * JWT（JSON Web Token）：登录成功后返回给前端的“凭证”，前端后续请求需携带此令牌，证明用户已登录
+ * JWT工具类（优化版）
+ * 核心优化：新增日志排查、空值校验、异常细化，解决「当前登录用户不存在」问题
  */
-@Component // 标识为Spring组件，让Spring管理，后续可通过@Autowired注入使用
-@Slf4j // Lombok注解，自动生成日志对象，用于打印日志（排查错误）
+@Component
+@Slf4j
 public class JwtUtil {
 
-    // 从application.yml中读取JWT密钥（@Value注解用于读取配置文件中的值）
-    @Value("${jwt.secret}")
+    // 从配置文件读取密钥（适配你的application.yml）
+    @Value("${jwt.secret:zjutLostFoundSystem20240510SecretKey}")
     private String secret;
 
-    // 从配置文件读取令牌有效期（毫秒）
-    @Value("${jwt.expiration}")
+    @Value("${jwt.expiration:86400000}")
     private long expiration;
 
-    // 从配置文件读取签发者
-    @Value("${jwt.issuer}")
+    @Value("${jwt.issuer:zjut}")
     private String issuer;
 
-    // 初始化密钥（编码处理，提升安全性）
-    @PostConstruct // 该方法在对象创建后自动执行，用于初始化操作
-    public void init() {
-        secret = secret + "lost_found_salt"; // 加盐处理，避免密钥泄露后被破解（salt是自定义的随机字符串）
-    }
-
     /**
-     * 生成JWT令牌（登录成功后调用）
-     * @param username 登录账号（作为令牌的subject，唯一标识用户）
-     * @return 加密后的JWT令牌（字符串）
+     * 生成符合HS512要求的JWT令牌
      */
     public String generateToken(String username) {
-        Date now = new Date(); // 当前时间（令牌签发时间）
-        Date expirationDate = new Date(now.getTime() + expiration); // 令牌过期时间
+        // 前置校验：用户名不能为空
+        if (!StringUtils.hasText(username)) {
+            log.error("生成令牌失败：用户名不能为空");
+            throw new IllegalArgumentException("用户名不能为空");
+        }
 
-        // 构建令牌，链式调用，设置各项参数
-        return Jwts.builder()
-                .setSubject(username) // 设置用户唯一标识（此处用账号，确保唯一）
-                .setIssuedAt(now) // 设置令牌签发时间
-                .setExpiration(expirationDate) // 设置令牌过期时间
-                .setIssuer(issuer) // 设置签发者
-                .signWith(SignatureAlgorithm.HS512, secret) // 签名算法：HS512，密钥：secret（加密用）
-                .compact(); // 生成令牌字符串
+        Date now = new Date();
+        Date expirationDate = new Date(now.getTime() + expiration);
+
+        // 生成符合HS512要求的安全密钥
+        SecretKey secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+
+        String token = Jwts.builder()
+                .setSubject(username)          // 用户名作为唯一标识
+                .setIssuedAt(now)              // 签发时间
+                .setExpiration(expirationDate) // 过期时间（24小时）
+                .setIssuer(issuer)             // 签发者
+                .signWith(secretKey, SignatureAlgorithm.HS512)
+                .compact();
+
+        log.info("为用户[{}]生成JWT令牌：{}", username, token);
+        return token;
     }
 
     /**
-     * 从令牌中解析出用户名（验证令牌时调用）
-     * @param token JWT令牌
-     * @return 用户名（解析失败返回null）
+     * 解析令牌中的用户名（优化版：新增日志+空值校验+异常细化）
      */
     public String getUsernameFromToken(String token) {
+        // 前置校验：令牌不能为空
+        if (!StringUtils.hasText(token)) {
+            log.error("令牌解析失败：令牌为空");
+            return null;
+        }
+
         try {
-            // 解析令牌：用密钥验证签名，获取令牌中的负载信息（claims）
+            // 生成安全密钥
+            SecretKey secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+
+            // 解析令牌
             Claims claims = Jwts.parser()
-                    .setSigningKey(secret) // 用密钥验证签名（确保令牌未被篡改）
-                    .parseClaimsJws(token) // 解析令牌
-                    .getBody(); // 获取令牌中的负载信息（存储了用户名等数据）
-            return claims.getSubject(); // 返回subject（即用户名）
+                    .setSigningKey(secretKey)
+                    .parseClaimsJws(token)
+                    .getBody();
+
+            // 获取用户名并校验
+            String username = claims.getSubject();
+            if (!StringUtils.hasText(username)) {
+                log.error("令牌解析失败：令牌中用户名为空");
+                return null;
+            }
+
+            log.info("令牌解析成功，用户名：{}", username);
+            return username;
+
+        } catch (ExpiredJwtException e) {
+            log.error("JWT令牌已过期 | 过期时间：{} | 错误信息：{}",
+                    e.getClaims().getExpiration(), e.getMessage());
+            return null;
+        } catch (MalformedJwtException e) {
+            log.error("JWT令牌格式错误（如重复Bearer、令牌篡改） | 错误信息：{}", e.getMessage());
+            return null;
+        } catch (SignatureException e) {
+            log.error("JWT令牌签名错误（密钥不匹配） | 错误信息：{}", e.getMessage());
+            return null;
+        } catch (JwtException e) {
+            log.error("JWT令牌无效 | 错误信息：{}", e.getMessage());
+            return null;
         } catch (Exception e) {
-            // 解析失败（如令牌篡改、令牌过期），打印错误日志，返回null
-            log.error("JWT令牌解析失败：{}", e.getMessage());
+            log.error("JWT令牌解析失败 | 异常类型：{} | 错误信息：{}",
+                    e.getClass().getName(), e.getMessage());
             return null;
         }
     }
 
     /**
-     * 验证令牌是否有效（请求接口时调用）
-     * @param token JWT令牌
-     * @param username 待验证的用户名
-     * @return true：有效；false：无效（过期、签名错误、用户名不匹配）
+     * 验证令牌有效性
      */
     public boolean validateToken(String token, String username) {
-        String tokenUsername = getUsernameFromToken(token); // 从令牌中解析用户名
-        // 验证条件：令牌解析出的用户名不为空、与传入用户名一致、令牌未过期
-        return StringUtils.hasText(tokenUsername)
+        String tokenUsername = getUsernameFromToken(token);
+        boolean isValid = StringUtils.hasText(tokenUsername)
                 && tokenUsername.equals(username)
                 && !isTokenExpired(token);
+
+        log.info("验证用户[{}]的令牌有效性：{}", username, isValid);
+        return isValid;
     }
 
     /**
-     * 判断令牌是否过期（私有方法，仅当前类使用）
-     * @param token JWT令牌
-     * @return true：已过期；false：未过期
+     * 判断令牌是否过期
      */
     private boolean isTokenExpired(String token) {
         try {
+            SecretKey secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
             Claims claims = Jwts.parser()
-                    .setSigningKey(secret)
+                    .setSigningKey(secretKey)
                     .parseClaimsJws(token)
                     .getBody();
-            Date expirationDate = claims.getExpiration(); // 获取令牌过期时间
-            return expirationDate.before(new Date()); // 过期时间早于当前时间，说明已过期
+            boolean isExpired = claims.getExpiration().before(new Date());
+            if (isExpired) {
+                log.warn("令牌已过期 | 过期时间：{}", claims.getExpiration());
+            }
+            return isExpired;
         } catch (Exception e) {
-            log.error("JWT令牌过期判断失败：{}", e.getMessage());
-            return true; // 解析失败默认视为过期（避免非法请求）
+            log.error("判断令牌过期失败：{}", e.getMessage());
+            return true; // 解析失败默认视为过期
         }
     }
 
     /**
-     * 从HTTP请求头中获取JWT令牌（请求接口时调用）
-     * 约定：前端请求头格式为 Authorization: Bearer 令牌字符串（固定格式，前端需遵守）
-     * @param request HTTP请求（前端发送的请求）
-     * @return JWT令牌（无令牌返回null）
+     * 从请求头中提取令牌（自动去除Bearer前缀）
      */
     public String getTokenFromRequest(HttpServletRequest request) {
-        String authHeader = request.getHeader("Authorization"); // 获取请求头中的Authorization字段
-        // 判断请求头是否不为空，且以“Bearer ”开头（注意有空格）
-        if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
-            return authHeader.substring(7); // 截取Bearer后面的令牌部分（去掉前7个字符）
+        String authHeader = request.getHeader("Authorization");
+        if (StringUtils.hasText(authHeader)) {
+            // 自动去除Bearer前缀（兼容大小写/多余空格）
+            if (authHeader.toLowerCase().startsWith("bearer ")) {
+                String token = authHeader.substring(7).trim();
+                log.info("从请求头提取令牌：{}", token);
+                return token;
+            }
+            log.warn("请求头Authorization格式错误，未以Bearer开头：{}", authHeader);
         }
-        return null; // 无令牌返回null
+        log.error("请求头Authorization为空");
+        return null;
     }
 }
