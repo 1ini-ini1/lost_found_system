@@ -33,4 +33,13 @@ public enum UserRoleEnum {
         }
         return USER; // 默认返回普通用户（防止查询不到时报错）
     }
+
+    // ========== 补充：适配UserService中的getCode/getName调用 ==========
+    public String getCode() {
+        return this.value; // 代码/存储值=原value
+    }
+
+    public String getName() {
+        return this.desc; // 名称/描述=原desc
+    }
 }

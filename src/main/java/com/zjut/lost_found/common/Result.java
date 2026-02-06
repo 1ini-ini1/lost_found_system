@@ -1,26 +1,31 @@
-package com.zjut.lost_found.common; // 包路径需和测试类导入的一致
+package com.zjut.lost_found.common;
 
 import lombok.Data;
 
 /**
- * 全局统一响应结果类
- * 所有接口返回数据都通过此类封装，包含状态码、提示信息、数据体
+ * 全局统一返回结果类
+ * @param <T> 数据泛型
  */
-@Data // 使用Lombok自动生成getter/setter/toString等方法
+@Data // 自动生成get/set/toString/equals，解决setCode/setMessage/setData报错
 public class Result<T> {
-    // 响应状态码（200成功，400参数错误，401未授权，500服务器错误等）
+    /**
+     * 响应码：200成功，500失败，其他自定义
+     */
     private Integer code;
-    // 响应提示信息
+    /**
+     * 响应消息
+     */
     private String message;
-    // 响应数据体（泛型支持任意数据类型）
+    /**
+     * 响应数据
+     */
     private T data;
 
-    // 私有构造方法，禁止外部直接实例化
+    // 私有构造，仅通过静态方法创建
     private Result() {}
 
-    // ========== 静态构造方法（简化调用） ==========
     /**
-     * 成功响应（无数据）
+     * 成功：无返回数据
      */
     public static <T> Result<T> success() {
         Result<T> result = new Result<>();
@@ -30,7 +35,7 @@ public class Result<T> {
     }
 
     /**
-     * 成功响应（带数据）
+     * 成功：带返回数据
      */
     public static <T> Result<T> success(T data) {
         Result<T> result = new Result<>();
@@ -41,7 +46,7 @@ public class Result<T> {
     }
 
     /**
-     * 失败响应（自定义状态码和提示信息）
+     * 失败：自定义码+消息
      */
     public static <T> Result<T> error(Integer code, String message) {
         Result<T> result = new Result<>();
@@ -51,9 +56,16 @@ public class Result<T> {
     }
 
     /**
-     * 快捷失败响应（默认500状态码）
+     * 失败：默认500+操作失败
      */
-    public static <T> Result<T> error(String message) {
+    public static <T> Result<T> fail() {
+        return error(500, "操作失败");
+    }
+
+    /**
+     * 失败：默认500+自定义消息
+     */
+    public static <T> Result<T> fail(String message) {
         return error(500, message);
     }
 }

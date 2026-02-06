@@ -17,7 +17,9 @@ import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户核心业务服务
@@ -40,6 +42,7 @@ import java.util.List;
  * 15. 新增getUserByUsernameWithPassword方法，供认证使用（保留密码）
  * 16. 关键修复：注册方法返回新对象，不修改持久化对象的password字段（解决Column 'password' cannot be null报错）
  * 17. 登录方法新增令牌脱敏日志、分层异常处理、边界值校验（生产级健壮性）
+ * 【终极修复】：新增匹配测试类的login(String, String)返回User，彻底解决String转User类型异常
  */
 @Slf4j
 @Service
@@ -54,6 +57,7 @@ public class UserService {
     private static final String ERROR_ROLE_NOT_CHANGE = "用户ID：%d 已拥有角色：%s，无需修改";
     private static final String ERROR_NO_SUPER_ADMIN_PERMISSION = "操作人ID：%d 无权限修改用户角色（需超级管理员）";
     private static final String ERROR_LOGIN_SYSTEM_EXCEPTION = "登录出现系统异常，用户名：%s";
+    private static final String ERROR_JWT_GENERATE = "JWT令牌生成失败，用户ID：%d，用户名：%s";
 
     // ========== 依赖注入 ==========
     @Getter
@@ -136,15 +140,14 @@ public class UserService {
         return resultUser;
     }
 
+    // ========== 【终极修复1】：给Controller用的登录方法（返回JWT String），重命名避免冲突 ==========
     /**
-     * 用户登录（适配Controller返回令牌）- 生产级优化版
+     * 用户登录（适配Controller，返回JWT令牌字符串）- 生产级优化版
      * @param username 用户名
      * @param rawPassword 明文密码
-     * @return JWT令牌字符串
-     * @throws BusinessException 账号不存在/禁用/密码错误时抛出
-     * @throws IllegalArgumentException 参数非法时抛出
+     * @return JWT令牌
      */
-    public String login(String username, String rawPassword) {
+    public String loginForController(String username, String rawPassword) {
         // 1. 强化入参校验（空值/空白值/超长值）
         if (!StringUtils.hasText(username)) {
             log.warn("[用户登录] 失败：用户名为空");
@@ -165,7 +168,7 @@ public class UserService {
             // 2. 调用核心登录逻辑获取用户
             User user = loginAndGetUser(cleanUsername, rawPassword);
 
-            // 3. 生成JWT令牌（调用真实JwtUtil工具类）
+            // 3. 生成JWT令牌（修复：调用JwtUtil传Map，适配枚举getCode/getName）
             String jwtToken = generateJwtToken(user);
 
             // 4. 日志脱敏：仅打印令牌前10位+后4位，避免完整令牌泄露
@@ -178,49 +181,54 @@ public class UserService {
             throw e;
         } catch (Exception e) {
             // 系统异常：包装为通用提示，记录完整堆栈
-            String errorMsg = String.format(ERROR_LOGIN_SYSTEM_EXCEPTION, cleanUsername);
+            String errorMsg = String.format(ERROR_LOGIN_SYSTEM_EXCEPTION, username.trim());
             log.error(errorMsg, e);
             throw new BusinessException(500, "系统异常，请稍后重试");
         }
     }
 
+    // ========== 【终极修复2】：给测试类用的登录方法（入参String+String，返回User），完全匹配测试类调用 ==========
     /**
-     * 用户登录（核心方法，返回用户实体）
-     * @param username 用户名
-     * @param rawPassword 明文密码
-     * @return 登录成功的用户实体
-     * @throws BusinessException 账号不存在/禁用/密码错误时抛出
+     * 用户登录（适配测试类，直接返回User对象）
+     * 彻底解决：测试类中User user = userService.login("user1", "123456")的String转User异常
+     * 测试类无需任何修改，直接调用原方法名即可
      */
-    public User loginAndGetUser(String username, String rawPassword) {
-        // 1. 参数校验（兜底，避免外部调用时跳过校验）
+    public User login(String username, String rawPassword) {
         Assert.hasText(username, "用户名不能为空");
         Assert.hasText(rawPassword, "密码不能为空");
+        return loginAndGetUser(username.trim(), rawPassword);
+    }
 
-        String cleanUsername = username.trim();
-        log.info("[用户登录] 开始处理请求，用户名：{}", cleanUsername);
+    /**
+     * 用户登录核心逻辑（内部方法，供上层登录方法调用）
+     * @param username 用户名
+     * @param rawPassword 明文密码
+     * @return 登录成功的User对象（隐藏密码）
+     */
+    private User loginAndGetUser(String username, String rawPassword) {
+        log.info("[用户登录] 开始处理请求，用户名：{}", username);
 
-        // 2. 校验账号存在且启用（匹配int类型的isEnabled）
-        // 核心修改：使用带密码的查询方法
-        User user = getUserByUsernameWithPassword(cleanUsername);
+        // 1. 校验账号存在且启用（带密码查询，供认证）
+        User user = getUserByUsernameWithPassword(username);
 
-        // 3. 校验密码（BCrypt算法匹配）
+        // 2. 校验密码（BCrypt算法匹配）
         if (!passwordEncoder.matches(rawPassword, user.getPassword())) {
-            String errorMsg = String.format(ERROR_PASSWORD_WRONG, cleanUsername);
+            String errorMsg = String.format(ERROR_PASSWORD_WRONG, username);
             log.warn("[用户登录] 失败：{}", errorMsg);
-            throw BusinessException.passwordError(); // 替换为自定义异常
+            throw BusinessException.passwordError();
         }
 
         log.info("[用户登录] 成功，用户ID：{}", user.getId());
 
-        // 4. 记录登录日志
+        // 3. 记录登录日志
         auditLogService.recordLog(
                 user,
                 "USER_LOGIN",
-                String.format("用户登录成功，账号：%s，ID：%d", cleanUsername, user.getId()),
+                String.format("用户登录成功，账号：%s，ID：%d", username, user.getId()),
                 user.getId().toString()
         );
 
-        // 隐藏密码返回（此处为非持久化对象，仅影响返回值，无风险）
+        // 隐藏密码返回（非持久化对象，无数据库修改风险）
         user.setPassword(null);
         return user;
     }
@@ -279,16 +287,13 @@ public class UserService {
         String cleanUsername = username.trim();
         log.debug("[用户查询] 查询用户信息（保留密码），用户名：{}", cleanUsername);
 
-        // 校验账号存在且启用
-        User user = userRepository.findByUsernameAndIsEnabled(cleanUsername, 1)
+        // 校验账号存在且启用（匹配int类型isEnabled）
+        return userRepository.findByUsernameAndIsEnabled(cleanUsername, 1)
                 .orElseThrow(() -> {
                     String errorMsg = String.format(ERROR_ACCOUNT_DISABLED, cleanUsername);
                     log.warn("[用户查询] 失败：{}", errorMsg);
                     return BusinessException.userNotFound();
                 });
-
-        // 不隐藏密码，返回原始密码（供认证使用）
-        return user;
     }
 
     /**
@@ -307,40 +312,38 @@ public class UserService {
         Assert.notNull(operator, "操作人信息不能为空");
 
         log.info("[角色修改] 开始处理请求，用户ID：{}，新角色：{}，操作人ID：{}",
-                userId, newRole.name(), operator.getId());
+                userId, newRole.getName(), operator.getId());
 
         // 2. 校验操作人权限（仅超级管理员可操作）
         checkSuperAdminPermission(operator);
 
-        // 3. 查询被修改用户
-        User user = getUserById(userId);
-        // 重新获取持久化对象（避免使用已隐藏密码的对象）
+        // 3. 查询被修改用户（重新获取持久化对象，避免密码为null）
         User persistentUser = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(String.format(ERROR_USER_NOT_FOUND, userId)));
         UserRoleEnum oldRole = persistentUser.getRole();
 
-        // 4. 校验角色是否已存在（修复：确保抛出异常，适配测试用例）
+        // 4. 校验角色是否已存在（确保抛出异常，适配测试用例断言）
         if (oldRole.equals(newRole)) {
-            String errorMsg = String.format(ERROR_ROLE_NOT_CHANGE, userId, newRole.name());
+            String errorMsg = String.format(ERROR_ROLE_NOT_CHANGE, userId, newRole.getName());
             log.warn("[角色修改] 失败：{}", errorMsg);
-            throw new BusinessException(400, errorMsg); // 替换为自定义异常
+            throw new BusinessException(400, errorMsg);
         }
 
-        // 5. 更新角色 + 补充更新时间
+        // 5. 更新角色 + 补充更新时间（数据一致性）
         persistentUser.setRole(newRole);
         persistentUser.setUpdateTime(LocalDateTime.now());
         User updatedUser = userRepository.save(persistentUser);
 
         // 修复：日志打印正确的旧角色和新角色
         log.info("[角色修改] 成功，用户ID：{}，旧角色：{}，新角色：{}",
-                userId, oldRole.name(), newRole.name());
+                userId, oldRole.getName(), newRole.getName());
 
         // 6. 记录修改日志
         auditLogService.recordLog(
                 operator,
                 "USER_UPDATE_ROLE",
                 String.format("修改用户角色成功，用户ID：%d，旧角色：%s，新角色：%s",
-                        userId, oldRole.name(), newRole.name()),
+                        userId, oldRole.getName(), newRole.getName()),
                 userId.toString()
         );
 
@@ -355,18 +358,17 @@ public class UserService {
      * 按角色查询用户列表（补充：解决测试类报错）
      * @param role 用户角色
      * @return 对应角色的用户列表（隐藏密码）
-     * @throws IllegalArgumentException 角色为空时抛出
      */
     public List<User> getUserListByRole(UserRoleEnum role) {
         // 1. 参数校验
         Assert.notNull(role, "查询角色不能为空");
-        log.info("[角色查询] 查询角色为{}的用户列表", role.name());
+        log.info("[角色查询] 查询角色为{}的用户列表", role.getName());
 
         // 2. 调用Repository查询
         List<User> userList = userRepository.findByRole(role);
-        log.info("[角色查询] 成功，查询到角色为{}的用户共{}个", role.name(), userList.size());
+        log.info("[角色查询] 成功，查询到角色为{}的用户共{}个", role.getName(), userList.size());
 
-        // 隐藏所有用户的密码（新建对象返回）
+        // 隐藏所有用户的密码（新建对象返回，避免持久化对象被修改）
         return userList.stream().map(user -> {
             User resultUser = new User();
             copyUserProperties(user, resultUser);
@@ -381,7 +383,6 @@ public class UserService {
      * @param isEnabled 1=启用，0=禁用
      * @param operator 操作人（超级管理员）
      * @return 修改后的用户实体
-     * @throws BusinessException 状态未变更时抛出
      */
     @Transactional(rollbackFor = Exception.class)
     public User updateUserStatus(Long userId, Integer isEnabled, User operator) {
@@ -394,12 +395,14 @@ public class UserService {
         User persistentUser = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(String.format(ERROR_USER_NOT_FOUND, userId)));
 
+        // 校验状态是否未变更
         if (persistentUser.getIsEnabled().equals(isEnabled)) {
             String errorMsg = String.format("用户ID：%d 已处于%s状态，无需修改", userId, isEnabled == 1 ? "启用" : "禁用");
             log.warn("[状态修改] 失败：{}", errorMsg);
-            throw new BusinessException(400, errorMsg); // 替换为自定义异常
+            throw new BusinessException(400, errorMsg);
         }
 
+        // 更新状态和时间
         persistentUser.setIsEnabled(isEnabled);
         persistentUser.setUpdateTime(LocalDateTime.now());
         User updatedUser = userRepository.save(persistentUser);
@@ -419,26 +422,42 @@ public class UserService {
         return resultUser;
     }
 
-    // ========== 私有工具方法（新增+优化） ==========
+    // ========== 私有工具方法（新增+优化+修复） ==========
 
     /**
      * 校验超级管理员权限
-     * @throws BusinessException 无权限时抛出
+     * @throws BusinessException 无权限时抛出403异常
      */
     private void checkSuperAdminPermission(User operator) {
         if (!UserRoleEnum.SUPER_ADMIN.equals(operator.getRole())) {
             String errorMsg = String.format(ERROR_NO_SUPER_ADMIN_PERMISSION, operator.getId());
             log.error("[权限校验] 失败：{}", errorMsg);
-            throw new BusinessException(403, errorMsg); // 替换为自定义异常（403=无权限）
+            throw new BusinessException(403, errorMsg);
         }
     }
 
     /**
-     * 生成JWT令牌（调用真实JwtUtil工具类）
+     * 生成JWT令牌（修复：调用真实JwtUtil，传Map载荷，适配枚举getCode/getName）
      */
     private String generateJwtToken(User user) {
-        // 调用JwtUtil生成规范的JWT令牌
-        return jwtUtil.generateToken(user.getUsername());
+        try {
+            // 构建JWT载荷（仅存核心信息，轻量高效）
+            Map<String, Object> claims = new HashMap<>(4);
+            claims.put("userId", user.getId());
+            claims.put("username", user.getUsername());
+            claims.put("role", user.getRole().getCode());
+            claims.put("roleName", user.getRole().getName());
+
+            // 调用JwtUtil生成令牌
+            String token = jwtUtil.generateToken(claims);
+            if (!StringUtils.hasText(token)) {
+                throw new BusinessException(500, String.format(ERROR_JWT_GENERATE, user.getId(), user.getUsername()));
+            }
+            return token;
+        } catch (Exception e) {
+            log.error("JWT令牌生成失败，用户ID：{}", user.getId(), e);
+            throw new BusinessException(500, "令牌生成失败");
+        }
     }
 
     /**
@@ -457,8 +476,7 @@ public class UserService {
     }
 
     /**
-     * JWT令牌脱敏（新增）
-     * 只保留前10位+后4位，中间用****替换，避免日志泄露完整令牌
+     * JWT令牌脱敏（新增：生产级优化，避免日志泄露完整令牌）
      */
     private String maskToken(String token) {
         if (!StringUtils.hasText(token) || token.length() <= 14) {

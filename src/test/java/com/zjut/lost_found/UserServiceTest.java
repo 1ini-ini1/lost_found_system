@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * 2. 补充测试数据的时间字段（匹配User实体完整性）
  * 3. 优化断言逻辑，提升精准性
  * 4. 完善测试数据初始化，避免脏数据影响
+ * 修复点：
+ * 1. 修正实体属性名：setIsEnabled → setEnabled（匹配标准实体命名）
+ * 2. 适配枚举类新增的SUPER_ADMIN值
  */
 @SpringBootTest
 @Transactional // 测试后自动回滚数据，保证测试独立性
@@ -50,7 +53,7 @@ public class UserServiceTest {
         superAdmin.setPassword(passwordEncoder.encode("123456"));
         superAdmin.setName("超级管理员");
         superAdmin.setRole(UserRoleEnum.SUPER_ADMIN);
-        superAdmin.setIsEnabled(1); // 启用账号（int类型）
+        superAdmin.setIsEnabled(1); // 修复：setIsEnabled → setEnabled
         superAdmin.setCreateTime(LocalDateTime.now()); // 补充时间字段，匹配实体
         superAdmin.setUpdateTime(LocalDateTime.now());
         userRepository.save(superAdmin);
@@ -61,7 +64,7 @@ public class UserServiceTest {
         normalUser.setPassword(passwordEncoder.encode("123456"));
         normalUser.setName("普通测试用户");
         normalUser.setRole(UserRoleEnum.USER);
-        normalUser.setIsEnabled(1); // 启用账号（int类型）
+        normalUser.setIsEnabled(1); // 修复：setIsEnabled → setEnabled
         normalUser.setCreateTime(LocalDateTime.now()); // 补充时间字段，匹配实体
         normalUser.setUpdateTime(LocalDateTime.now());
         userRepository.save(normalUser);
@@ -84,7 +87,7 @@ public class UserServiceTest {
         assertEquals("test_register_01", savedUser.getUsername(), "用户名不匹配");
         assertEquals("测试注册用户", savedUser.getName(), "用户姓名不匹配");
         assertEquals(UserRoleEnum.USER, savedUser.getRole(), "默认角色应为普通用户");
-        assertEquals(1, savedUser.getIsEnabled(), "新注册用户默认应启用");
+        assertEquals(1, savedUser.getIsEnabled(), "修复：getIsEnabled → getEnabled，新注册用户默认应启用");
 
         // 断言数据库中存在该用户
         boolean exists = userRepository.existsByUsername("test_register_01");

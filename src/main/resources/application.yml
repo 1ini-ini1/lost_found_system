@@ -9,9 +9,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3307/lost_found?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    url: jdbc:mysql://120.55.245.101:3307/lost_found?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: root
-    password: Zzj20061023
+    password: "@Zzj20061023"
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:

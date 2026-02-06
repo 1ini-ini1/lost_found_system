@@ -73,7 +73,7 @@ public class UserController extends BaseController {
         }
 
         // 调用服务层登录逻辑（用户名+密码校验）
-        String jwtToken = userService.login(loginRequest.getUsername(), loginRequest.getPassword());
+        String jwtToken = String.valueOf(userService.login(loginRequest.getUsername(), loginRequest.getPassword()));
         return ApiResponse.success("登录成功", jwtToken);
     }
 

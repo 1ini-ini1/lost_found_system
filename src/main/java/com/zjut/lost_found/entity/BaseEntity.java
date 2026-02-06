@@ -1,5 +1,6 @@
 package com.zjut.lost_found.entity;
 
+import com.zjut.lost_found.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.MappedSuperclass;
